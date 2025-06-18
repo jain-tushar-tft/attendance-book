@@ -1,5 +1,6 @@
-from rest_framework import status
-from rest_framework.generics import ListCreateAPIView
+from django.conf import settings
+from rest_framework.exceptions import NotFound
+from rest_framework.generics import ListCreateAPIView, RetrieveDestroyAPIView
 from rest_framework.response import Response
 
 from student.serializers import StudentSerializer
@@ -12,12 +13,11 @@ class StudentListCreateView(ListCreateAPIView):
     serializer_class = StudentSerializer
 
     def get(self, request, *args, **kwargs):
-        limit = int(request.GET.get("limit", 10))
         start_key = request.GET.get("start_key")
         start_key_dict = {"roll_no": start_key} if start_key else None
 
-        response = dynamo_client.table.scan(Limit=limit, ExclusiveStartKey=start_key_dict) \
-            if start_key_dict else dynamo_client.table.scan(Limit=limit)
+        response = dynamo_client.table.scan(Limit=settings.PAGINATION_LIMIT, ExclusiveStartKey=start_key_dict) \
+            if start_key_dict else dynamo_client.table.scan(Limit=settings.PAGINATION_LIMIT)
 
         return Response({
             "students": response.get("Items", []),
@@ -31,4 +31,21 @@ class StudentListCreateView(ListCreateAPIView):
         student_data = serializer.validated_data
         dynamo_client.put_item(student_data)
 
-        return Response(student_data, status=status.HTTP_201_CREATED)
+        return Response(student_data)
+
+
+class StudentRetrieveDestroyView(RetrieveDestroyAPIView):
+    def get(self, request, roll_no):
+        student = dynamo_client.get_item({"roll_no": roll_no})
+        if not student:
+            raise NotFound('student not found')
+
+        return Response(student)
+
+    def delete(self, request, roll_no):
+        student = dynamo_client.get_item({"roll_no": roll_no})
+        if not student:
+            raise NotFound('student not found')
+
+        dynamo_client.delete_item({"roll_no": roll_no})
+        return Response({"message": "Student deleted successfully"})
